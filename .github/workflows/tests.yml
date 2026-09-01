@@ -1,0 +1,46 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      # The GUI import test needs Tk; on Linux runners it is a separate package.
+      # The test skips itself if this is unavailable, so failure here is not fatal.
+      - name: Install Tk (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+        continue-on-error: true
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Check the package builds and installs
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+          passgen -n 2
+
+      # Cheap end-to-end check that the CLI itself still runs.
+      - name: Smoke test the CLI
+        run: |
+          python -m passgen -n 3
+          python -m passgen -p entra -n 3
+          python -m passgen -p msa -n 3
+          python -m passgen --help

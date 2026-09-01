@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+
+# Your real banned-term lists stay local. banned-example.txt is the template
+# that ships; anything named *.local.txt is yours and is never committed.
+*.local.txt
+banned-local.txt
+
+# Never commit generated passwords.
+passwords.txt
+*.passwords
+
+# Build artefacts. Released binaries live on GitHub Releases, not in the repo.
+build/
+dist/
+*.spec
+*.exe
+*.egg-info/

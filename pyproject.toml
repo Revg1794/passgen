@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "passgen"
+version = "0.1.0"
+description = "Random passwords that are easy to remember and easy to type, verified against real Entra ID / Active Directory / Microsoft account rules."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "Revg1794" }]
+keywords = ["password", "passphrase", "generator", "entra", "active-directory", "security"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+# No runtime dependencies on purpose: everything is standard library, so the
+# tool works on a fresh Python with nothing to install and nothing to trust.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Revg1794/passgen"
+Issues = "https://github.com/Revg1794/passgen/issues"
+
+[project.scripts]
+passgen = "passgen.cli:main"
+
+[project.gui-scripts]
+# gui-scripts launches without a console window on Windows.
+passgen-gui = "passgen.gui:main"
+
+[tool.setuptools.packages.find]
+include = ["passgen*"]

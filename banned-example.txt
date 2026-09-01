@@ -1,0 +1,36 @@
+# Example custom banned-term list for passgen -b / --banned-list
+#
+# One base term per line. Blank lines and anything after # are ignored.
+# Terms must be 4-16 characters, matching the limit Entra ID puts on a custom
+# banned password list. Ban the BASE TERM only - the matching is fuzzy (edit
+# distance 1) and case/leetspeak insensitive, so "Contoso" already covers
+# "C0ntoso", "contos0", "contosoo" and "Contoso!".
+#
+# Mirror this file into Entra (Protection > Authentication methods > Password
+# protection > Custom banned passwords) so the two stay in step. Entra caps the
+# custom list at 1,000 terms.
+#
+# Keep your organisation's real terms in a file named *.local.txt - .gitignore
+# excludes those, so your banned list never lands in a public repository.
+
+# --- your company -------------------------------------------------------
+# contoso
+
+# --- products and internal terms ----------------------------------------
+# widget
+# helpdesk
+
+# --- locations ----------------------------------------------------------
+# london
+
+# --- perennial weak base terms (the global list covers these too) --------
+password
+welcome
+summer
+winter
+spring
+autumn
+january
+december
+letmein
+qwerty
