@@ -181,6 +181,9 @@ passgen -p entra           for a Microsoft 365 work account
 passgen -w 7               longer: for a master password
 passgen -s dash            put dashes back between words
 passgen --check            audit an existing password
+passgen --phonetic         spell it out for reading over the phone
+passgen --bits 80          pick the length for me
+passgen --version          which version this is
 passgen --help             every option
 ```
 
@@ -267,6 +270,67 @@ never lands in a repository.
   scores 3 and is rejected.
 
 ---
+
+## Reading a password over the phone
+
+`--phonetic` spells each password in the NATO alphabet. Capitals are spoken as
+CAPITALS, and the groups break at each capital letter, so the CamelCase word
+boundaries become natural pauses:
+
+```
+$ passgen --phonetic -n 1
+LunarAmendPlotRopeFrame81?
+    LIMA uniform november alpha romeo  /  ALPHA mike echo november delta  /
+    PAPA lima oscar tango  /  ROMEO oscar papa echo  /
+    FOXTROT romeo alpha mike echo eight one question
+```
+
+In the GUI it appears automatically in the status bar when you click a password
+to copy it - no flag needed.
+
+## Asking for a strength instead of a length
+
+Most people know how strong a password should be, not how many words that takes.
+`--bits` works it out:
+
+```
+passgen --bits 80        # picks 7 words, reports 85 bits
+passgen --bits 45        # picks 4
+```
+
+It measures rather than calculates, so length caps and banned-term filters are
+accounted for. If the target cannot be reached - `-p msa --bits 120` cannot fit
+120 bits into 16 characters - it says so rather than trying forever.
+
+## Config file
+
+The shipped defaults are opinionated: no separators, and a capital, a number and
+a symbol in every password, because that is what most corporate policies demand.
+If your policy differs, set it once in a config file rather than typing flags
+every time:
+
+```bash
+passgen --write-config > passgen.conf     # a commented starting point
+```
+
+```ini
+[defaults]
+profile = entra
+sep = dash
+words = 6
+require = upper,number,symbol
+leaked_list = C:/Projects/passgen/leaked.idx
+```
+
+passgen looks for `passgen.conf` in the current directory, then in your per-user
+config directory (`%APPDATA%\passgen\` on Windows, `~/.config/passgen/`
+elsewhere). `--config FILE` points at a specific one and `--no-config` ignores
+them all.
+
+**Precedence** is: a command-line flag beats a profile, which beats the config
+file, which beats the built-in defaults. A profile winning over the config is
+deliberate - naming `-p msa` is a request to target that platform, and a stray
+`words = 7` in a file should not quietly produce passwords too long for it.
 
 ## Leaked-password checking
 
@@ -440,6 +504,8 @@ MIT — see [LICENSE](LICENSE). Use it for anything, no warranty.
 - `passgen/wordlist.py` — the 1,779 curated words
 - `passgen/banned.py` — Entra Password Protection evaluation
 - `passgen/leaked.py` — leaked-password index and lookup
+- `passgen/phonetic.py` — NATO spelling alphabet
+- `passgen/config.py` — config file handling
 - `tools/build_leaked_index.py` — turns a breach corpus into an index
 - `banned-example.txt` — template for your own banned-term list
 - `tests/` — the test suite

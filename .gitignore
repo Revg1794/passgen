@@ -16,3 +16,6 @@ dist/
 *.spec
 *.exe
 *.egg-info/
+
+# Your own config stays local; passgen.conf.example is the template.
+passgen.conf

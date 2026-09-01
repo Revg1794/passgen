@@ -1,0 +1,27 @@
+# passgen house defaults. Every setting is optional; anything not listed here
+# keeps passgen's built-in default, and any command-line flag overrides both.
+#
+# Put this file next to passgen as passgen.conf, or in your per-user config
+# directory (on Windows: %APPDATA%\passgen\passgen.conf).
+
+[defaults]
+# Which platform to target when none is given on the command line.
+# profile = entra
+
+# Password shape.
+# words = 5
+# mode = words
+# sep = none
+# digits = 2
+# capitalize = true
+# symbol = true
+
+# Character categories every password must contain. Empty to drop the rule.
+# require = upper,number,symbol
+
+# How many to print at once.
+# count = 5
+
+# Always check against these, so you cannot forget to.
+# leaked_list = C:/Projects/passgen/leaked.idx
+# banned_list = C:/Projects/passgen/my-terms.local.txt

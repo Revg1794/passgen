@@ -17,7 +17,10 @@ import secrets
 import sys
 
 from . import banned
+from . import config
 from . import leaked
+from . import phonetic
+from . import __version__
 from .wordlist import WORDS
 
 # Pronounceable-nonsense building blocks: sounds that survive being read aloud
@@ -282,14 +285,31 @@ def parse_args(argv):
   passgen -w 6 -s space            a spoken-friendly passphrase
   passgen -s dash -r ''            readable, no complexity requirement
   passgen --check                  audit an existing password
+  passgen --phonetic               spell it out for the phone
+  passgen --bits 80                pick the length for me
 """)
-    p.add_argument("-n", "--count", type=int, default=5,
+    p.add_argument("--version", action="version",
+                   version=f"passgen {__version__}")
+    p.add_argument("-n", "--count", type=int,
                    help="how many passwords to print (default: 5)")
     p.add_argument("-p", "--profile", choices=sorted(PROFILES),
                    help="target a platform's rules and verify against them: "
                         + ", ".join(sorted(PROFILES)))
     p.add_argument("-w", "--words", type=int,
                    help="words per password (default: 5)")
+    p.add_argument("--bits", type=float, metavar="N",
+                   help="choose the word count for you, aiming for at least N "
+                        "bits of entropy. Cannot be combined with -w")
+    p.add_argument("--phonetic", action="store_true",
+                   help="also spell each password in the NATO alphabet, for "
+                        "reading it out over the phone")
+    p.add_argument("--config", metavar="FILE",
+                   help="config file of house defaults (default: ./passgen.conf, "
+                        "then your per-user config directory)")
+    p.add_argument("--no-config", action="store_true",
+                   help="ignore any config file")
+    p.add_argument("--write-config", action="store_true",
+                   help="print a commented example config file and exit")
     p.add_argument("-m", "--mode", choices=("words", "syllables"),
                    help="real words, or invented pronounceable ones (default: words)")
     p.add_argument("-s", "--sep", choices=sorted(SEPARATORS),
@@ -346,17 +366,48 @@ def parse_args(argv):
                    help="print passwords only, no summary")
 
     args = p.parse_args(argv)
+    explicit_words = args.words is not None
 
-    # Precedence: an explicit flag beats the profile, which beats the built-in
-    # default. Anything the user didn't type is still None at this point.
+    if args.write_config:
+        print(config.EXAMPLE, end="")
+        raise SystemExit(0)
+
+    # Config file settings sit below profiles and above the built-in defaults.
+    # A profile beating the config is deliberate: naming -p msa is a request to
+    # target that platform, and a stray `words = 7` in a file should not quietly
+    # produce passwords too long for it.
+    settings, args.config_path = {}, None
+    if not args.no_config:
+        try:
+            settings, args.config_path = config.load(args.config)
+        except ValueError as err:
+            p.error(str(err))
+
+    # A config file may name a profile, but only if the command line didn't.
+    if args.profile is None and settings.get("profile"):
+        if settings["profile"] not in PROFILES:
+            p.error(f"config file sets unknown profile {settings['profile']!r}")
+        args.profile = settings["profile"]
+
+    # Precedence: an explicit flag beats the profile, which beats the config
+    # file, which beats the built-in default. Anything the user didn't type is
+    # still None at this point.
     profile = PROFILES[args.profile] if args.profile else None
     builtin = {"mode": "words", "words": 5, "capitalize": True,
                "digits": 2, "syllables": 2, "symbol": True, "sep": "none",
-               "require": "upper,number,symbol"}
+               "require": "upper,number,symbol", "count": 5}
     for name, fallback in builtin.items():
         if getattr(args, name) is None:
             preset = profile["defaults"].get(name) if profile else None
+            if preset is None:
+                preset = settings.get(name)
             setattr(args, name, fallback if preset is None else preset)
+
+    # Path settings only apply when the flag wasn't given.
+    if not args.leaked_list and settings.get("leaked_list"):
+        args.leaked_list = settings["leaked_list"]
+    if not args.banned_list and settings.get("banned_list"):
+        args.banned_list = [settings["banned_list"]]
 
     if profile:
         args.min_length = max(args.min_length, profile["min"])
@@ -391,13 +442,57 @@ def parse_args(argv):
         p.error("counts must be positive")
     if args.min_length > args.max_length:
         p.error("--min-length exceeds --max-length")
+
+    if args.bits is not None:
+        if explicit_words:
+            p.error("use --bits or -w, not both")
+        if args.bits <= 0:
+            p.error("--bits must be positive")
+        solved = solve_words(args, args.bits)
+        if solved is None:
+            p.error(f"cannot reach {args.bits:.0f} bits within these limits "
+                    f"({args.min_length}-{args.max_length} characters). "
+                    "Raise --max-length, or drop the profile that caps it")
+        args.words = solved
     return args
+
+
+def solve_words(args, target, ceiling=32):
+    """Smallest word count reaching `target` bits, or None if unreachable.
+
+    Measured rather than calculated, because the filters take bits away and
+    syllable mode's bit count is path-dependent.
+
+    Two things stop this running for minutes. The probe cap is deliberately
+    small: this only needs a figure good enough to compare against the target,
+    not the precise one the summary quotes. And once some word count has worked,
+    a later one yielding nothing means a length cap has begun rejecting
+    everything, so more words will never help.
+    """
+    best = 0.0
+    succeeded = False
+    for count in range(1, ceiling + 1):
+        args.words = count
+        bits = measure_entropy(args, target=120, cap=20000)
+        if bits is None:  # nothing survives the filters at this size
+            if succeeded:
+                return None
+            continue  # still too short for a --min-length; try a longer one
+        succeeded = True
+        if bits >= target:
+            return count
+        if bits <= best:  # more words has stopped buying anything
+            return None
+        best = bits
+    return None
 
 
 def audit(password, args):
     """Report on a password the user supplied. Returns (lines, ok)."""
     lines = [f"length: {len(password)} characters",
              "contains: " + ", ".join(sorted(categories(password)))]
+    if args.phonetic:
+        lines.append("spelling: " + phonetic.spell(password))
     ok = True
 
     if args.leaked:
@@ -463,13 +558,22 @@ def main(argv=None):
     results = [generate(args) for _ in range(args.count)]
     for password, _ in results:
         print(password)
+        if args.phonetic:
+            print("    " + phonetic.spell(password))
 
     if args.quiet:
         return
 
+    # stdout is block-buffered when piped while stderr is not, so without this
+    # the summary overtakes the passwords it describes.
+    sys.stdout.flush()
+
     bits = measure_entropy(args)
     if bits is None:  # every sample was rejected; generate() would have failed
         return
+
+    if args.phonetic:
+        print(phonetic.LEGEND, file=sys.stderr)
 
     source = (f"{len(WORDS):,}-word list" if args.mode == "words"
               else "invented syllables")

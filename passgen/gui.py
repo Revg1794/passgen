@@ -17,6 +17,7 @@ from tkinter import filedialog, ttk
 
 from . import banned
 from . import cli as passgen
+from . import phonetic
 
 # Screen-glow palette: near-black grounds, phosphor greens.
 BG = "#050805"
@@ -473,7 +474,10 @@ class PassgenGUI:
         password = self.rows[line - 1]
         self.to_clipboard(password)
         shown = "*" * len(password) if self.hidden else password
+        # The spelling is what you actually need when reading a password to
+        # someone on the phone, so put it where the eye already is.
         self.set_status(f"copied: {shown}\n"
+                        f"{phonetic.spell(password)}\n"
                         f"clipboard clears in {CLIPBOARD_TTL}s.")
 
     def copy_all(self):

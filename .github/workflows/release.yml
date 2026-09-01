@@ -1,0 +1,61 @@
+name: release
+
+# Builds the Windows executable on a clean runner whenever a version tag is
+# pushed, so the published binary provably comes from that commit rather than
+# from whatever was on a maintainer's laptop. The build provenance attestation
+# is the closest thing to code signing that costs nothing.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach the binary to"
+        required: true
+
+permissions:
+  contents: write        # upload the asset to the release
+  id-token: write        # sign the provenance attestation
+  attestations: write
+
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Run the tests before releasing anything
+        run: python -m unittest discover -s tests
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pyinstaller --onefile --windowed --name passgen --noupx --clean `
+            --distpath dist --workpath build --specpath build `
+            tools/exe_entry.py
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/passgen.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  passgen.exe" | Out-File -FilePath dist/passgen.exe.sha256 -Encoding ascii
+          Write-Output "SHA-256: $hash"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/passgen.exe
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release upload ${{ github.event.inputs.tag || github.ref_name }}
+          dist/passgen.exe dist/passgen.exe.sha256 --clobber
