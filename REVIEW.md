@@ -140,10 +140,15 @@ Lower stakes, but two behaviours are security-relevant and tested:
 
 Things I believe but have not verified:
 
-- **The `.exe` has never been run on a machine without Python installed.** It's
-  built with PyInstaller, which should bundle everything, but I built and tested
-  it on a machine that has Python. If you have a clean VM, this is a genuinely
-  useful five-minute test.
+- ~~The `.exe` has never been run on a machine without Python installed.~~
+  **Done, and it found a real bug.** v0.2.0's binary failed instantly with
+  `No module named 'passgen'`: PyInstaller had bundled the entry stub without
+  the application, and it passed locally only because that build ran in a venv
+  where the package happened to be installed. Fixed in v0.2.1, which builds a
+  console binary from the same bundle and runs it in CI, so an empty bundle now
+  fails the release rather than the user. Re-verified on a clean Windows 11 VM.
+  A reminder that "it worked on my machine" can be true and meaningless at the
+  same time.
 - The GUI has only been run on Windows. Tkinter behaviour on macOS and Linux is
   untested beyond the import.
 - The release binary is unsigned. It carries a SHA-256 and a build provenance
