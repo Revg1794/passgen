@@ -180,6 +180,7 @@ passgen -n 10              show ten to choose from
 passgen -p entra           for a Microsoft 365 work account
 passgen -w 7               longer: for a master password
 passgen -s dash            put dashes back between words
+passgen --check            audit an existing password
 passgen --help             every option
 ```
 
@@ -266,6 +267,80 @@ never lands in a repository.
   scores 3 and is rejected.
 
 ---
+
+## Leaked-password checking
+
+Breach corpora like [Have I Been Pwned](https://haveibeenpwned.com/Passwords)
+list roughly a billion passwords that have appeared in real breaches. passgen
+can check against them offline.
+
+**Be clear about what this buys you.** At the default settings passgen generates
+from about 1.8 x 10^19 possibilities, so a generated password lands in a
+billion-entry corpus roughly once every eighteen billion runs. As a safety net
+on normal output it is theatre. It earns its place two other ways:
+
+- **As a canary for bad settings.** Dial things down far enough (`-w 2 -r ''` is
+  about 22 bits) and you are generating from a space *smaller than the breach
+  corpus*, where collisions stop being theoretical. If the leak filter ever
+  rejects everything, passgen says so and tells you the settings are the
+  problem, not the list.
+- **As an audit tool** for passwords a human chose - see `--check` below.
+
+Matching is **exact**, which is deliberately unlike `-b` banned terms. "Within
+one edit of a leaked password" is both meaningless and computationally hopeless
+across a billion entries.
+
+### Building an index
+
+Download a corpus (the [HIBP downloader](https://github.com/HaveIBeenPwned/PwnedPasswordsDownloader)
+is the usual source), then:
+
+```bash
+# The ten million most common entries - covers essentially all real spraying
+python tools/build_leaked_index.py pwned-passwords-sha1.txt leaked.idx --top 10000000
+
+# Or a small plaintext list, kept whole
+python tools/build_leaked_index.py rockyou.txt rockyou.idx
+```
+
+Both HIBP's `SHA1:count` format and plain one-password-per-line files are
+accepted. The index stores a sorted array of 64-bit truncated hashes plus
+occurrence counts - about 120 MB for ten million entries, looked up with a
+binary search. The full billion-entry corpus would be roughly 8 GB and is not
+worth loading; the common entries are where the risk actually is.
+
+No list is shipped with passgen: they are large, and their licensing is not
+mine to redistribute.
+
+```bash
+passgen -l leaked.idx           # reject leaked passwords while generating
+```
+
+## Auditing an existing password
+
+`--check` audits a password instead of generating one - useful for reviewing
+what someone has actually chosen:
+
+```
+$ passgen --check -l leaked.idx -p entra
+password to check (not echoed):
+length: 11 characters
+contains: lowercase, number, symbol, uppercase
+BREACHED - appears 129 times in the leaked-password list. Do not use it.
+meets Entra ID / Microsoft 365 cloud account
+```
+
+Omitting the value prompts for it, which keeps the password out of your shell
+history and out of the process list - prefer that over `--check "hunter2"`.
+
+It reports leak status, character categories, and - when you pass `-p`, `-b` or
+`--name` - profile compliance and banned-term score. **Exit status is 1 if the
+password should not be used** and 0 if it passed every check you asked for, so
+it works in scripts:
+
+```bash
+passgen --check "$candidate" -l leaked.idx || echo "reject this one"
+```
 
 ## How it works
 
@@ -364,6 +439,8 @@ MIT — see [LICENSE](LICENSE). Use it for anything, no warranty.
 - `passgen/gui.py` — Matrix-themed desktop GUI
 - `passgen/wordlist.py` — the 1,779 curated words
 - `passgen/banned.py` — Entra Password Protection evaluation
+- `passgen/leaked.py` — leaked-password index and lookup
+- `tools/build_leaked_index.py` — turns a breach corpus into an index
 - `banned-example.txt` — template for your own banned-term list
 - `tests/` — the test suite
 - `passgen.cmd` / `passgen-gui.cmd` — Windows launchers

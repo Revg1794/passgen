@@ -17,6 +17,7 @@ import secrets
 import sys
 
 from . import banned
+from . import leaked
 from .wordlist import WORDS
 
 # Pronounceable-nonsense building blocks: sounds that survive being read aloud
@@ -149,6 +150,8 @@ def acceptable(password, args):
         return False
     if args.terms and banned.score(password, args.terms) < args.min_score:
         return False
+    if args.leaked and args.leaked.lookup(password) is not None:
+        return False
     return True
 
 
@@ -167,7 +170,7 @@ def generate(args, limit=10000):
 
 def diagnose(args, attempts, sample=500):
     """Explain which filter is blocking, so the error names the real cause."""
-    blame = {"length": 0, "categories": 0, "names": 0, "banned": 0}
+    blame = {"length": 0, "categories": 0, "names": 0, "banned": 0, "leaked": 0}
     for _ in range(sample):
         password = build(args)[0]
         if not args.min_length <= len(password) <= args.max_length:
@@ -178,6 +181,8 @@ def diagnose(args, attempts, sample=500):
             blame["names"] += 1
         if args.terms and banned.score(password, args.terms) < args.min_score:
             blame["banned"] += 1
+        if args.leaked and args.leaked.lookup(password) is not None:
+            blame["leaked"] += 1
 
     culprit, hits = max(blame.items(), key=lambda item: item[1])
     hint = {
@@ -190,6 +195,11 @@ def diagnose(args, attempts, sample=500):
                   "shorter names or a larger word count"),
         "banned": (f"no candidate scored {args.min_score} against the banned "
                    "terms. Use more words, or trim the banned list"),
+        # If this one ever fires, the settings are generating from a space
+        # smaller than the breach corpus. That is the real problem, not the list.
+        "leaked": ("every candidate was in the leaked-password list, which "
+                   "means these settings produce too few possible passwords. "
+                   "Use more words rather than a smaller list"),
     }[culprit]
     return f"{hint} (tried {attempts:,} candidates)."
 
@@ -271,6 +281,7 @@ def parse_args(argv):
   passgen -m syllables -w 3        invented words: TobiraKanpuVellon48$
   passgen -w 6 -s space            a spoken-friendly passphrase
   passgen -s dash -r ''            readable, no complexity requirement
+  passgen --check                  audit an existing password
 """)
     p.add_argument("-n", "--count", type=int, default=5,
                    help="how many passwords to print (default: 5)")
@@ -316,6 +327,15 @@ def parse_args(argv):
                    metavar="N",
                    help=f"Entra point score to require (default: "
                         f"{banned.MIN_SCORE})")
+    p.add_argument("-l", "--leaked-list", metavar="FILE",
+                   help="index of leaked passwords to reject, built with "
+                        "tools/build_leaked_index.py (a plain password list "
+                        "also works)")
+    p.add_argument("--check", nargs="?", const="", metavar="PASSWORD",
+                   help="audit an existing password instead of generating: "
+                        "reports leak status, character categories and profile "
+                        "compliance. Omit the value to be prompted, which keeps "
+                        "the password out of your shell history")
     p.add_argument("--min-length", type=int, default=0, metavar="N",
                    help="reject candidates shorter than N characters")
     p.add_argument("--max-length", type=int, default=NO_LIMIT, metavar="N",
@@ -358,6 +378,15 @@ def parse_args(argv):
     args.terms = banned.prepare(terms)
     args.names = args.name
 
+    args.leaked = None
+    if args.leaked_list:
+        try:
+            args.leaked = leaked.load(args.leaked_list)
+        except OSError as err:
+            p.error(f"cannot read leaked list {args.leaked_list}: {err.strerror}")
+        except ValueError as err:
+            p.error(str(err))
+
     if min(args.count, args.words, args.syllables) < 1 or args.digits < 0:
         p.error("counts must be positive")
     if args.min_length > args.max_length:
@@ -365,8 +394,70 @@ def parse_args(argv):
     return args
 
 
+def audit(password, args):
+    """Report on a password the user supplied. Returns (lines, ok)."""
+    lines = [f"length: {len(password)} characters",
+             "contains: " + ", ".join(sorted(categories(password)))]
+    ok = True
+
+    if args.leaked:
+        hits = args.leaked.lookup(password)
+        if hits is None:
+            lines.append(f"not found in the {len(args.leaked):,}-entry "
+                         "leaked-password list")
+        else:
+            ok = False
+            times = "once" if hits == 1 else f"{hits:,} times"
+            lines.append(f"BREACHED - appears {times} in the "
+                         "leaked-password list. Do not use it.")
+    else:
+        lines.append("no leaked-password list supplied (-l); "
+                     "breach status unknown")
+
+    if args.terms:
+        score = banned.score(password, args.terms)
+        verdict = "passes" if score >= args.min_score else "FAILS"
+        lines.append(f"banned-term score: {score} (need {args.min_score}) "
+                     f"- {verdict}")
+        ok = ok and score >= args.min_score
+
+    if args.names:
+        hit = banned.substring_hit(password, args.names)
+        if hit:
+            ok = False
+            lines.append(f"contains the name or tenant term {hit!r}")
+
+    if args.profile:
+        profile = PROFILES[args.profile]
+        problems = compliance(password, profile)
+        if problems:
+            ok = False
+            lines.append(f"FAILS {profile['label']}: {'; '.join(problems)}")
+        else:
+            lines.append(f"meets {profile['label']}")
+
+    return lines, ok
+
+
+def check_mode(args):
+    """Audit a password instead of generating. Exit status 1 means 'do not use'."""
+    password = args.check
+    if not password:
+        import getpass
+        password = getpass.getpass("password to check (not echoed): ")
+    if not password:
+        raise SystemExit("passgen: no password given")
+
+    lines, ok = audit(password, args)
+    for line in lines:
+        print(line)
+    return 0 if ok else 1
+
+
 def main(argv=None):
     args = parse_args(argv)
+    if args.check is not None:
+        raise SystemExit(check_mode(args))
     profile = PROFILES[args.profile] if args.profile else None
 
     results = [generate(args) for _ in range(args.count)]
