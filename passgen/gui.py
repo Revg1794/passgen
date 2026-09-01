@@ -522,11 +522,18 @@ class PassgenGUI:
             return
         password = self.rows[line - 1]
         self.to_clipboard(password)
-        shown = "*" * len(password) if self.hidden else password
         # The spelling is what you actually need when reading a password to
-        # someone on the phone, so put it where the eye already is.
+        # someone on the phone, so put it where the eye already is - but never
+        # while masked. Spelling it out defeats the entire point of HIDE, which
+        # exists so the screen can be shared, and a NATO spelling is arguably
+        # easier for a viewer to transcribe than the password itself.
+        if self.hidden:
+            spelling = "spelling hidden - press SHOW to reveal it"
+        else:
+            spelling = phonetic.spell(password)
+        shown = "*" * len(password) if self.hidden else password
         self.set_status(f"copied: {shown}\n"
-                        f"{phonetic.spell(password)}\n"
+                        f"{spelling}\n"
                         f"clipboard clears in {CLIPBOARD_TTL}s.")
 
     def copy_all(self):

@@ -136,6 +136,12 @@ Lower stakes, but two behaviours are security-relevant and tested:
   if the user copied something else in the meantime
 - `HIDE` masks passwords on screen while still copying the real value
 
+`tests/test_gui.py` covers both, including a regression test for a real bug:
+the first version of HIDE masked the list while the status bar underneath
+spelled the password out in the NATO alphabet, which defeated the entire
+feature. Worth checking whether anything else on screen still leaks while
+masked.
+
 ## Untested assumptions
 
 Things I believe but have not verified:
