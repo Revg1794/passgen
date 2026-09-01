@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "passgen"
-version = "0.2.1"
+version = "0.2.2"
 description = "Random passwords that are easy to remember and easy to type, verified against real Entra ID / Active Directory / Microsoft account rules."
 readme = "README.md"
 requires-python = ">=3.8"

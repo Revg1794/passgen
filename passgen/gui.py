@@ -51,6 +51,7 @@ class MatrixRain:
         self.cols = self.rows = 0
         self.drops = []
         self.running = True
+        self.pending = None  # so stop() can cancel a frame already scheduled
         canvas.bind("<Configure>", self._rebuild)
 
     def _rebuild(self, event):
@@ -108,10 +109,21 @@ class MatrixRain:
                 if head - row in (0, 1) or random.random() < 0.02:
                     opts["text"] = random.choice(GLYPHS)
                 self.canvas.itemconfig(item, **opts)
-        self.canvas.after(self.delay, self.step)
+        self.pending = self.canvas.after(self.delay, self.step)
 
     def stop(self):
+        """Halt the animation, cancelling any frame already queued.
+
+        Without cancelling, a frame scheduled before the window closes fires
+        against a destroyed interpreter and Tk prints an error on exit.
+        """
         self.running = False
+        if self.pending is not None:
+            try:
+                self.canvas.after_cancel(self.pending)
+            except Exception:
+                pass
+            self.pending = None
 
 
 class PassgenGUI:
@@ -124,8 +136,13 @@ class PassgenGUI:
         self.copied = None
         root.title("passgen")
         root.configure(bg=BG)
-        root.minsize(900, 620)
-        root.geometry("1020x660")
+        root.minsize(880, 560)
+        # Open big enough that nothing needs scrolling on a normal display, but
+        # never taller than the screen: a 1366x768 laptop was the case where
+        # controls fell off the bottom.
+        width = min(1060, root.winfo_screenwidth() - 120)
+        height = min(760, root.winfo_screenheight() - 140)
+        root.geometry(f"{width}x{height}")
 
         self._dark_titlebar()
         self._build_style()
@@ -184,6 +201,10 @@ class PassgenGUI:
                       foreground=[("readonly", TEXT)])
         style.configure("TEntry", fieldbackground=BG, foreground=TEXT,
                         insertcolor=GREEN, bordercolor=EDGE)
+        style.configure("Dark.Vertical.TScrollbar", background=EDGE,
+                        troughcolor=PANEL, bordercolor=PANEL, arrowcolor=GREEN,
+                        darkcolor=EDGE, lightcolor=EDGE)
+        style.map("Dark.Vertical.TScrollbar", background=[("active", DIM)])
         # The combobox dropdown is a classic Tk listbox, themed via options.
         self.root.option_add("*TCombobox*Listbox.background", BG)
         self.root.option_add("*TCombobox*Listbox.foreground", TEXT)
@@ -220,8 +241,39 @@ class PassgenGUI:
         self._build_output(body)
 
     def _build_controls(self, parent):
-        panel = ttk.Frame(parent, style="Panel.TFrame", padding=14)
-        panel.grid(row=0, column=0, sticky="ns", padx=(0, 12))
+        # The settings are taller than the window on a 1366x768 screen, so
+        # whatever sits last gets clipped - first the HIDE button, then the
+        # OUTPUT field once the buttons were pinned. Rather than shave padding
+        # until it happens to fit on one particular screen, the settings scroll
+        # and the buttons stay pinned below them, so nothing is ever out of
+        # reach at any window size.
+        outer = ttk.Frame(parent, style="Panel.TFrame", padding=(14, 14, 6, 14))
+        outer.grid(row=0, column=0, sticky="ns", padx=(0, 12))
+
+        actions = ttk.Frame(outer, style="Panel.TFrame")
+        actions.pack(side="bottom", fill="x", pady=(12, 0))
+
+        canvas = tk.Canvas(outer, bg=PANEL, highlightthickness=0, width=258,
+                           borderwidth=0)
+        scrollbar = ttk.Scrollbar(outer, orient="vertical",
+                                  command=canvas.yview, style="Dark.Vertical.TScrollbar")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        panel = ttk.Frame(canvas, style="Panel.TFrame")
+        window = canvas.create_window((0, 0), window=panel, anchor="nw")
+        panel.bind("<Configure>",
+                   lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfigure(window, width=e.width))
+
+        # Wheel scrolling only while the pointer is over the settings, so it
+        # doesn't fight the password list.
+        def wheel(event):
+            canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", wheel))
+        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
 
         self.profile = tk.StringVar(value="entra")
         self.mode = tk.StringVar(value="words")
@@ -297,16 +349,13 @@ class PassgenGUI:
         field("how many", ttk.Spinbox(panel, from_=1, to=50, width=16,
                                       textvariable=self.count))
 
-        ttk.Button(panel, text="GENERATE", command=self.generate).grid(
-            row=row, column=0, columnspan=2, sticky="ew", pady=(18, 4))
-        row += 1
-        ttk.Button(panel, text="COPY ALL", command=self.copy_all).grid(
-            row=row, column=0, columnspan=2, sticky="ew")
-        row += 1
-        self.hide_button = ttk.Button(panel, text="HIDE (screen share)",
+        ttk.Button(actions, text="GENERATE", command=self.generate).pack(
+            fill="x", pady=(0, 4))
+        ttk.Button(actions, text="COPY ALL", command=self.copy_all).pack(
+            fill="x")
+        self.hide_button = ttk.Button(actions, text="HIDE (screen share)",
                                       command=self.toggle_hidden)
-        self.hide_button.grid(row=row, column=0, columnspan=2, sticky="ew",
-                              pady=(6, 0))
+        self.hide_button.pack(fill="x", pady=(6, 0))
 
     def _build_output(self, parent):
         frame = ttk.Frame(parent, style="Panel.TFrame", padding=2)

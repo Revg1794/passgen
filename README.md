@@ -58,11 +58,18 @@ character, so it satisfies the complexity rules most workplaces enforce.
 That's the whole thing — no Python, no setup. The window in the screenshot opens
 with eight passwords ready. **Click any password to copy it.**
 
-> **Windows will probably warn you.** The file isn't code-signed (certificates
-> cost money), so SmartScreen may say *"Windows protected your PC"* — click
-> **More info → Run anyway**. Some antivirus tools also flag PyInstaller
-> executables generically. If that makes you uncomfortable, use the source
-> install below instead: it's the same code, and you can read every line of it.
+> **Windows will warn you once.** The file isn't code-signed (certificates cost
+> money), so Edge says *"passgen.exe isn't commonly downloaded. Make sure you
+> trust passgen.exe before you open it."* Choose **Keep**, and it runs — no
+> further prompts, and Defender doesn't quarantine it. If that still makes you
+> uncomfortable, install from source below: it's the same code and you can read
+> every line of it.
+>
+> You can verify the download is genuinely the one built from this repository:
+>
+> ```
+> gh attestation verify passgen.exe --repo Revg1794/passgen
+> ```
 
 ### With Python (any OS)
 
