@@ -11,13 +11,15 @@ password rules.**
 
 ![The passgen GUI: a Matrix-themed window with generated passwords](docs/screenshot.png)
 
-> **Work in progress.** This is an early, actively changing project.
-> Reviewing it? [REVIEW.md](REVIEW.md) maps out where the risk actually sits. It has not
+> **Work in progress.** This is an early, actively changing project. It has not
 > been independently audited, flags and defaults may change without notice, and
 > the platform rules it encodes are read from Microsoft's public documentation
 > rather than from any official API. Review it yourself before you rely on it
 > for anything that matters, and treat the compliance checks as a convenience,
 > not a guarantee.
+>
+> **Reviewing it?** [REVIEW.md](REVIEW.md) maps out where the risk actually
+> sits, and what has not been tested at all.
 
 ---
 
