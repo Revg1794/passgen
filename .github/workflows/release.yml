@@ -1,9 +1,18 @@
 name: release
 
-# Builds the Windows executable on a clean runner whenever a version tag is
-# pushed, so the published binary provably comes from that commit rather than
+# Builds the Windows executables on a clean runner whenever a version tag is
+# pushed, so the published binaries provably come from that commit rather than
 # from whatever was on a maintainer's laptop. The build provenance attestation
 # is the closest thing to code signing that costs nothing.
+#
+# v0.2.0 shipped a binary that could not start: PyInstaller was pointed at
+# tools/exe_entry.py, analysed it with tools/ on the path, never found the
+# passgen package at the repo root, and bundled the entry stub without the
+# application. It built "successfully" and produced 8 MB of nothing. Locally it
+# had worked only because the build venv happened to have `pip install .` run
+# in it. Two changes stop that recurring: the package is installed before the
+# build so it is genuinely importable, and the console build is executed here
+# so a missing package fails the release instead of the user.
 
 on:
   push:
@@ -11,11 +20,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build and attach the binary to"
+        description: "Existing tag to build and attach the binaries to"
         required: true
 
 permissions:
-  contents: write        # upload the asset to the release
+  contents: write        # upload the assets to the release
   id-token: write        # sign the provenance attestation
   attestations: write
 
@@ -34,28 +43,62 @@ jobs:
       - name: Run the tests before releasing anything
         run: python -m unittest discover -s tests
 
-      - name: Build
+      - name: Install the package so PyInstaller can actually find it
         run: |
           python -m pip install --upgrade pip pyinstaller
-          pyinstaller --onefile --windowed --name passgen --noupx --clean `
-            --distpath dist --workpath build --specpath build `
-            tools/exe_entry.py
+          python -m pip install .
+          python -c "import passgen, passgen.gui; print('importable:', passgen.__version__)"
 
-      - name: Checksum
+      - name: Build the GUI executable
+        run: >
+          pyinstaller --onefile --windowed --name passgen --noupx --clean
+          --paths .
+          --distpath dist --workpath build --specpath build
+          tools/exe_entry.py
+
+      - name: Build the console executable
+        run: >
+          pyinstaller --onefile --console --name passgen-cli --noupx --clean
+          --paths .
+          --distpath dist --workpath build --specpath build
+          tools/cli_entry.py
+
+      # The check that v0.2.0 needed. A bundle missing the passgen package
+      # exits non-zero here and the release never happens.
+      - name: Smoke test the built binary
         shell: pwsh
         run: |
-          $hash = (Get-FileHash dist/passgen.exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  passgen.exe" | Out-File -FilePath dist/passgen.exe.sha256 -Encoding ascii
-          Write-Output "SHA-256: $hash"
+          $out = & dist/passgen-cli.exe -n 3 -q
+          if ($LASTEXITCODE -ne 0) { throw "passgen-cli.exe exited $LASTEXITCODE" }
+          if ($out.Count -ne 3) { throw "expected 3 passwords, got $($out.Count)" }
+          foreach ($p in $out) {
+            if ($p.Length -lt 12) { throw "suspiciously short password: $p" }
+          }
+          & dist/passgen-cli.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "--version exited $LASTEXITCODE" }
+          Write-Output "smoke test passed:"
+          $out | ForEach-Object { Write-Output "  $_" }
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          foreach ($name in @("passgen.exe", "passgen-cli.exe")) {
+            $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
+            "$hash  $name" | Out-File -FilePath "dist/$name.sha256" -Encoding ascii
+            Write-Output "$name  $hash"
+          }
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: dist/passgen.exe
+          subject-path: |
+            dist/passgen.exe
+            dist/passgen-cli.exe
 
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
           gh release upload ${{ github.event.inputs.tag || github.ref_name }}
-          dist/passgen.exe dist/passgen.exe.sha256 --clobber
+          dist/passgen.exe dist/passgen.exe.sha256
+          dist/passgen-cli.exe dist/passgen-cli.exe.sha256 --clobber
